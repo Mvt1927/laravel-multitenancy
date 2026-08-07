@@ -2,6 +2,22 @@
 
 All notable changes to `laravel-multitenancy` will be documented in this file
 
+## 4.2.0 - 2026-08-07
+
+### What's Changed
+
+Processing a job no longer leaves the surrounding code with a different current tenant than it had before (#639, #643).
+
+On the `sync` connection and through `dispatchSync()`, a job runs inside the request that dispatched it. A job that is not tenant aware forgot the current tenant and never put it back, so the rest of the request continued without one. A tenant aware job for another tenant left that other tenant current. Whatever tenant was current before a job starts is now restored when it finishes, on both the success and the failure path, and nested sync dispatches restore per level.
+
+`queue:retry` behaves the same way. It needs the tenant of a failed job while it pushes that job back onto the queue, but the tenant of the code that ran the command is restored once it finishes. This matters when retrying jobs from a request with `Artisan::call('queue:retry')`.
+
+**Behaviour worth knowing about when upgrading:** on a queue worker the tenant of a processed job no longer stays current after that job finishes. Every job binds its own tenant, so jobs are unaffected, but code reading `Tenant::current()` in between jobs now sees no tenant. Listeners that are part of processing a job, `Queue::after()` and `JobFailed` for instance, still see the tenant of the job they are handling.
+
+* Update actions/checkout to v7 (#644)
+
+**Full Changelog**: https://github.com/spatie/laravel-multitenancy/compare/4.1.5...4.2.0
+
 ## 4.1.5 - 2026-07-22
 
 ### What's Changed
