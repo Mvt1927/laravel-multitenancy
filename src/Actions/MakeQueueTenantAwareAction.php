@@ -2,7 +2,10 @@
 
 namespace Spatie\Multitenancy\Actions;
 
+use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Contracts\Encryption\Encrypter;
+use Illuminate\Queue\Events\JobExceptionOccurred;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\JobRetryRequested;
 use Illuminate\Support\Arr;
@@ -21,6 +24,28 @@ class MakeQueueTenantAwareAction
     use BindAsCurrentTenant;
     use UsesMultitenancyConfig;
 
+    /**
+     * Shared between instances, as an application that starts multitenancy more
+     * than once, like Laravel Octane does for every request, ends up with a set
+     * of these listeners per start. Popping in reverse registration order then
+     * still leaves the tenant of the outermost listener current.
+     *
+     * @var array<int, ?IsTenant>
+     */
+    protected static array $tenantsCurrentBeforeJob = [];
+
+    /**
+     * Holds at most one tenant: the one that was current when `queue:retry`
+     * started pushing failed jobs back onto the queue.
+     *
+     * @var array<int, ?IsTenant>
+     */
+    protected static array $tenantsCurrentBeforeRetrying = [];
+
+    protected bool $listeningForJobsHavingBeenProcessed = false;
+
+    protected bool $listeningForTheRetryCommandHavingFinished = false;
+
     public function execute(): void
     {
         $this
@@ -31,19 +56,100 @@ class MakeQueueTenantAwareAction
     protected function listenForJobsBeingProcessed(): static
     {
         app('events')->listen(JobProcessing::class, function (JobProcessing $event) {
+            $this->listenForJobsHavingBeenProcessed();
+
+            static::$tenantsCurrentBeforeJob[] = app(IsTenant::class)::current();
+
             $this->bindOrForgetCurrentTenant($event);
         });
 
         return $this;
     }
 
+    /**
+     * A job may run in the same process as the code that dispatched it, on the
+     * `sync` connection or through `dispatchSync`. Processing it should not
+     * leave the dispatching context with a different tenant than it had.
+     *
+     * Registering only once the first job starts processing keeps this listener
+     * behind the ones the application registered while booting. Those still see
+     * the tenant of the job they are handling.
+     */
+    protected function listenForJobsHavingBeenProcessed(): void
+    {
+        if ($this->listeningForJobsHavingBeenProcessed) {
+            return;
+        }
+
+        $this->listeningForJobsHavingBeenProcessed = true;
+
+        app('events')->listen([JobProcessed::class, JobExceptionOccurred::class], function () {
+            if (static::$tenantsCurrentBeforeJob === []) {
+                return;
+            }
+
+            $this->makeTenantCurrentAgain(array_pop(static::$tenantsCurrentBeforeJob));
+        });
+    }
+
     protected function listenForJobsRetryRequested(): static
     {
         app('events')->listen(JobRetryRequested::class, function (JobRetryRequested $event) {
+            $this->listenForTheRetryCommandHavingFinished();
+
+            if (static::$tenantsCurrentBeforeRetrying === []) {
+                static::$tenantsCurrentBeforeRetrying[] = app(IsTenant::class)::current();
+            }
+
             $this->bindOrForgetCurrentTenant($event);
         });
 
         return $this;
+    }
+
+    /**
+     * `queue:retry` needs the tenant of a failed job to stay current after this
+     * event, as it reads the payload again to push the job back onto the queue.
+     * Only when the command is done can the tenant of whatever started it, an
+     * `Artisan::call('queue:retry')` in a request for instance, be put back.
+     */
+    protected function listenForTheRetryCommandHavingFinished(): void
+    {
+        if ($this->listeningForTheRetryCommandHavingFinished) {
+            return;
+        }
+
+        $this->listeningForTheRetryCommandHavingFinished = true;
+
+        app('events')->listen(CommandFinished::class, function () {
+            if (static::$tenantsCurrentBeforeRetrying === []) {
+                return;
+            }
+
+            $this->makeTenantCurrentAgain(array_pop(static::$tenantsCurrentBeforeRetrying));
+        });
+    }
+
+    protected function makeTenantCurrentAgain(?IsTenant $tenant): void
+    {
+        /**
+         * Comparing keys here instead of leaning on `makeCurrent`, which skips
+         * its work when the given tenant already is the current one. It reaches
+         * that conclusion through `current()`, typed as `?static`, which throws
+         * when the tenant to restore is of another class than the one the job
+         * bound, a subclass of the tenant model for instance.
+         */
+        if (app(IsTenant::class)::current()?->getKey() === $tenant?->getKey()) {
+            return;
+        }
+
+        if (! $tenant) {
+            app(IsTenant::class)::forgetCurrent();
+
+            return;
+        }
+
+        $tenant->makeCurrent();
     }
 
     protected function isTenantAware(JobProcessing|JobRetryRequested $event): bool
