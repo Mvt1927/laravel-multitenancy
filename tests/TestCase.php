@@ -27,6 +27,8 @@ abstract class TestCase extends Orchestra
 
         DB::table('jobs')->truncate();
 
+        \Spatie\Multitenancy\Actions\MakeQueueTenantAwareAction::resetState();
+
         View::addLocation(__DIR__ . '/stubs/views');
     }
 
@@ -79,16 +81,16 @@ abstract class TestCase extends Orchestra
 
         config([
             'database.connections.landlord' => [
-                'driver' => 'mysql',
+                'driver' => env('DB_CONNECTION', 'mysql'),
                 'username' => env('DB_USERNAME', 'root'),
                 'host' => env('DB_HOST', '127.0.0.1'),
                 'port' => env('DB_PORT', '3306'),
                 'password' => env('DB_PASSWORD'),
-                'database' => 'laravel_mt_landlord',
+                'database' => env('DB_DATABASE', 'laravel_mt_landlord'),
             ],
 
             'database.connections.tenant' => [
-                'driver' => 'mysql',
+                'driver' => env('DB_CONNECTION', 'mysql'),
                 'username' => env('DB_USERNAME', 'root'),
                 'host' => env('DB_HOST', '127.0.0.1'),
                 'port' => env('DB_PORT', '3306'),

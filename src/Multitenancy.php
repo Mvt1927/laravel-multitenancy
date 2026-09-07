@@ -30,6 +30,8 @@ class Multitenancy
     public function end(): void
     {
         app(IsTenant::class)::forgetCurrent();
+
+        MakeQueueTenantAwareAction::resetState();
     }
 
     protected function determineCurrentTenant(): void

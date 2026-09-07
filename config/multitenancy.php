@@ -38,7 +38,15 @@ return [
     'switch_tenant_tasks' => [
         // \Spatie\Multitenancy\Tasks\PrefixCacheTask::class,
         // \Spatie\Multitenancy\Tasks\SwitchTenantDatabaseTask::class,
-        // \Spatie\Multitenancy\Tasks\SwitchRouteCacheTask::class,
+    ],
+
+    /*
+     * Cache configuration for domain tenant finder.
+     */
+    'domain_cache' => [
+        'enabled_flag' => 'tenant_finder_manual_cache',
+        'store' => env('TENANT_CACHE_STORE', 'global'),
+        'prefix' => 'tenant_by_domain:',
     ],
 
     /*
@@ -92,7 +100,7 @@ return [
         'make_tenant_current_action' => MakeTenantCurrentAction::class,
         'forget_current_tenant_action' => ForgetCurrentTenantAction::class,
         'make_queue_tenant_aware_action' => MakeQueueTenantAwareAction::class,
-        'migrate_tenant' => MigrateTenantAction::class,
+        // 'migrate_tenant' => MigrateTenantAction::class,
     ],
 
     /*
