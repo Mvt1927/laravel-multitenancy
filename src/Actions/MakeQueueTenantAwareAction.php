@@ -35,6 +35,13 @@ class MakeQueueTenantAwareAction
     protected static array $tenantsCurrentBeforeJob = [];
 
     /**
+     * Stack storing tenant context state before jobs are processed.
+     *
+     * @var array<int, array{tenant: ?IsTenant, context: mixed}>
+     */
+    protected static array $tenantContextStack = [];
+
+    /**
      * Holds at most one tenant: the one that was current when `queue:retry`
      * started pushing failed jobs back onto the queue.
      *
@@ -42,15 +49,76 @@ class MakeQueueTenantAwareAction
      */
     protected static array $tenantsCurrentBeforeRetrying = [];
 
+    protected bool $listeningForJobsBeingQueued = false;
+
     protected bool $listeningForJobsHavingBeenProcessed = false;
 
     protected bool $listeningForTheRetryCommandHavingFinished = false;
 
+    public static function resetState(): void
+    {
+        static::$tenantsCurrentBeforeJob = [];
+        static::$tenantContextStack = [];
+        static::$tenantsCurrentBeforeRetrying = [];
+    }
+
     public function execute(): void
     {
         $this
+            ->listenForJobsBeingQueued()
             ->listenForJobsBeingProcessed()
             ->listenForJobsRetryRequested();
+    }
+
+    protected function listenForJobsBeingQueued(): static
+    {
+        if (class_exists(Context::class)) {
+            return $this;
+        }
+
+        if ($this->listeningForJobsBeingQueued) {
+            return $this;
+        }
+
+        $this->listeningForJobsBeingQueued = true;
+
+        app('queue')->createPayloadUsing(function ($connectionName, $queue, $payload) {
+            $queueable = data_get($payload, 'data.command', $this->jobClassFromLegacyPayload($payload ?? []));
+
+            if (! $this->isQueueableTenantAware($queueable)) {
+                return [];
+            }
+
+            return ['tenantId' => app(IsTenant::class)::current()?->getKey()];
+        });
+
+        return $this;
+    }
+
+    protected function isQueueableTenantAware(mixed $queueable): bool
+    {
+        if ($queueable === null) {
+            return config('multitenancy.queues_are_tenant_aware_by_default') === true;
+        }
+
+        if (is_string($queueable)) {
+            if (! str_starts_with($queueable, 'O:') && ! str_starts_with($queueable, 'a:') && ! str_starts_with($queueable, 'C:') && ! str_starts_with($queueable, 's:')) {
+                try {
+                    $queueable = app(Encrypter::class)->decrypt($queueable);
+                } catch (Throwable) {
+                }
+            }
+
+            try {
+                $queueable = unserialize($queueable);
+            } catch (Throwable) {
+                return $this->resolveTenantAwarenessForJob($queueable);
+            }
+        }
+
+        $job = is_object($queueable) ? $this->getJobFromQueueable($queueable) : $queueable;
+
+        return $this->resolveTenantAwarenessForJob($job);
     }
 
     protected function listenForJobsBeingProcessed(): static
@@ -58,7 +126,14 @@ class MakeQueueTenantAwareAction
         app('events')->listen(JobProcessing::class, function (JobProcessing $event) {
             $this->listenForJobsHavingBeenProcessed();
 
-            static::$tenantsCurrentBeforeJob[] = app(IsTenant::class)::current();
+            $currentTenant = app(IsTenant::class)::current();
+            $currentContext = class_exists(Context::class) ? Context::get($this->currentTenantContextKey()) : null;
+
+            static::$tenantsCurrentBeforeJob[] = $currentTenant;
+            static::$tenantContextStack[] = [
+                'tenant' => $currentTenant,
+                'context' => $currentContext,
+            ];
 
             $this->bindOrForgetCurrentTenant($event);
         });
@@ -84,11 +159,30 @@ class MakeQueueTenantAwareAction
         $this->listeningForJobsHavingBeenProcessed = true;
 
         app('events')->listen([JobProcessed::class, JobExceptionOccurred::class], function () {
-            if (static::$tenantsCurrentBeforeJob === []) {
+            if (static::$tenantsCurrentBeforeJob === [] && static::$tenantContextStack === []) {
                 return;
             }
 
-            $this->makeTenantCurrentAgain(array_pop(static::$tenantsCurrentBeforeJob));
+            $previousTenant = static::$tenantsCurrentBeforeJob !== []
+                ? array_pop(static::$tenantsCurrentBeforeJob)
+                : null;
+
+            $previousContext = null;
+            if (static::$tenantContextStack !== []) {
+                $stackItem = array_pop(static::$tenantContextStack);
+                $previousTenant = $stackItem['tenant'] ?? $previousTenant;
+                $previousContext = $stackItem['context'] ?? null;
+            }
+
+            $this->makeTenantCurrentAgain($previousTenant);
+
+            if (class_exists(Context::class)) {
+                if ($previousContext !== null) {
+                    Context::add($this->currentTenantContextKey(), $previousContext);
+                } else {
+                    Context::forget($this->currentTenantContextKey());
+                }
+            }
         });
     }
 
@@ -162,13 +256,24 @@ class MakeQueueTenantAwareAction
          * serialized command. Resolve the class name straight from the payload instead.
          */
         if (! isset($payload['data']['command'])) {
-            return $this->resolveTenantAwarenessForJob($this->jobClassFromLegacyPayload($payload));
+            return $this->resolveTenantAwarenessForJob($this->jobClassFromLegacyPayload($payload ?? []));
         }
 
         $serializedCommand = $payload['data']['command'];
 
-        if (! str_starts_with($serializedCommand, 'O:')) {
-            $serializedCommand = app(Encrypter::class)->decrypt($serializedCommand);
+        if (is_object($serializedCommand)) {
+            return $this->resolveTenantAwarenessForJob($this->getJobFromQueueable($serializedCommand));
+        }
+
+        if (! is_string($serializedCommand)) {
+            return config('multitenancy.queues_are_tenant_aware_by_default') === true;
+        }
+
+        if (! str_starts_with($serializedCommand, 'O:') && ! str_starts_with($serializedCommand, 'a:') && ! str_starts_with($serializedCommand, 's:') && ! str_starts_with($serializedCommand, 'C:')) {
+            try {
+                $serializedCommand = app(Encrypter::class)->decrypt($serializedCommand);
+            } catch (Throwable) {
+            }
         }
 
         try {
@@ -184,7 +289,11 @@ class MakeQueueTenantAwareAction
                 $tenant?->makeCurrent();
             }
 
-            $command = unserialize($serializedCommand);
+            try {
+                $command = unserialize($serializedCommand);
+            } catch (Throwable) {
+                return config('multitenancy.queues_are_tenant_aware_by_default') === true;
+            }
         }
 
         return $this->resolveTenantAwarenessForJob($this->getJobFromQueueable($command));
@@ -211,11 +320,11 @@ class MakeQueueTenantAwareAction
             return false;
         }
 
-        if (in_array($reflection->name, config('multitenancy.tenant_aware_jobs'))) {
+        if (in_array($reflection->name, config('multitenancy.tenant_aware_jobs') ?? [], true)) {
             return true;
         }
 
-        if (in_array($reflection->name, config('multitenancy.not_tenant_aware_jobs'))) {
+        if (in_array($reflection->name, config('multitenancy.not_tenant_aware_jobs') ?? [], true)) {
             return false;
         }
 
@@ -241,7 +350,7 @@ class MakeQueueTenantAwareAction
 
     protected function getJobFromQueueable(object $queueable)
     {
-        $job = Arr::get(config('multitenancy.queueable_to_job'), $queueable::class);
+        $job = Arr::get(config('multitenancy.queueable_to_job') ?? [], $queueable::class);
 
         if (! $job) {
             return $queueable;
@@ -292,15 +401,31 @@ class MakeQueueTenantAwareAction
             return $this->tenantIdFromPayloadContext($event);
         }
 
-        return Context::get($this->currentTenantContextKey());
+        if (class_exists(Context::class) && ($contextId = Context::get($this->currentTenantContextKey()))) {
+            return $contextId;
+        }
+
+        $payload = $this->getEventPayload($event);
+
+        if (isset($payload['tenantId'])) {
+            return $payload['tenantId'];
+        }
+
+        if (isset($payload['data'][$this->currentTenantContextKey()])) {
+            return $payload['data'][$this->currentTenantContextKey()];
+        }
+
+        return $this->tenantIdFromPayloadContext($event);
     }
+
+
 
     /**
      * When a job is retried through `queue:retry`, Laravel has not yet hydrated
      * the stored context onto the `Context` facade, so we read the tenant id
      * straight from the payload's serialized context instead.
      */
-    protected function tenantIdFromPayloadContext(JobRetryRequested $event): mixed
+    protected function tenantIdFromPayloadContext(JobProcessing|JobRetryRequested $event): mixed
     {
         $contextData = $this->getEventPayload($event)['illuminate:log:context']['data'] ?? [];
 
@@ -313,7 +438,7 @@ class MakeQueueTenantAwareAction
         try {
             return unserialize($serializedTenantId);
         } catch (Throwable) {
-            return null;
+            return $serializedTenantId;
         }
     }
 

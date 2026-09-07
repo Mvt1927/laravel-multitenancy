@@ -41,6 +41,8 @@ class ForgetCurrentTenantAction
     {
         app()->forgetInstance($this->currentTenantContainerKey());
 
-        Context::forget($this->currentTenantContextKey());
+        if (class_exists(Context::class)) {
+            Context::forget($this->currentTenantContextKey());
+        }
     }
 }

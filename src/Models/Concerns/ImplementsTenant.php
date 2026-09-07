@@ -2,13 +2,85 @@
 
 namespace Spatie\Multitenancy\Models\Concerns;
 
+use Illuminate\Support\Facades\Cache;
+use Laravel\Octane\Facades\Octane;
 use Spatie\Multitenancy\Actions\ForgetCurrentTenantAction;
 use Spatie\Multitenancy\Actions\MakeTenantCurrentAction;
 use Spatie\Multitenancy\Contracts\IsTenant;
 use Spatie\Multitenancy\TenantCollection;
 
+/**
+ * @mixin \Illuminate\Database\Eloquent\Model
+ */
 trait ImplementsTenant
 {
+    public static function bootImplementsTenant(): void
+    {
+        static::deleting(function (IsTenant $tenant) {
+            $tenant->forgetDomainCache();
+        });
+    }
+
+    public function forgetDomainCache(): void
+    {
+        $domains = [];
+
+        if (isset($this->domain) && is_string($this->domain) && $this->domain !== '') {
+            $domains[] = $this->domain;
+        }
+
+        if (method_exists($this, 'domains')) {
+            try {
+                $relationDomains = $this->domains;
+
+                if (is_iterable($relationDomains)) {
+                    foreach ($relationDomains as $domainItem) {
+                        if (is_string($domainItem)) {
+                            $domains[] = $domainItem;
+                        } elseif (is_object($domainItem) && isset($domainItem->domain)) {
+                            $domains[] = $domainItem->domain;
+                        }
+                    }
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        $domains = array_unique(array_filter($domains));
+
+        if (empty($domains)) {
+            return;
+        }
+
+        $storeName = config('multitenancy.domain_cache.store', 'global');
+        $prefix = config('multitenancy.domain_cache.prefix', 'tenant_by_domain:');
+
+        try {
+            $cache = Cache::store($storeName);
+        } catch (\Throwable) {
+            $cache = Cache::store();
+        }
+
+        $tasks = [];
+
+        foreach ($domains as $domain) {
+            $tasks[] = fn () => $cache->forget($prefix . $domain);
+        }
+
+        if (count($tasks) >= 2 && class_exists(Octane::class) && (isset($_SERVER['LARAVEL_OCTANE']) || app()->bound('octane'))) {
+            try {
+                Octane::concurrently($tasks);
+
+                return;
+            } catch (\Throwable) {
+            }
+        }
+
+        foreach ($tasks as $task) {
+            $task();
+        }
+    }
+
     public function makeCurrent(): static
     {
         if ($this->isCurrent()) {

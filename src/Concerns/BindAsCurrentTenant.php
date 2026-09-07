@@ -12,13 +12,17 @@ trait BindAsCurrentTenant
         $contextKey = config('multitenancy.current_tenant_context_key');
         $containerKey = config('multitenancy.current_tenant_container_key');
 
-        Context::forget($contextKey);
+        if (class_exists(Context::class)) {
+            Context::forget($contextKey);
+        }
 
         app()->forgetInstance($containerKey);
 
         app()->instance($containerKey, $tenant);
 
-        Context::add($contextKey, $tenant->getKey());
+        if (class_exists(Context::class)) {
+            Context::add($contextKey, $tenant->getKey());
+        }
 
         return $this;
     }

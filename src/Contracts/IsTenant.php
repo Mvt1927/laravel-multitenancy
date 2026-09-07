@@ -4,6 +4,9 @@ namespace Spatie\Multitenancy\Contracts;
 
 use Spatie\Multitenancy\TenantCollection;
 
+/**
+ * @mixin \Illuminate\Database\Eloquent\Model
+ */
 interface IsTenant
 {
     public static function current(): ?static;
