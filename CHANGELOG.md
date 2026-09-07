@@ -2,6 +2,18 @@
 
 All notable changes to `laravel-multitenancy` will be documented in this file
 
+## v4.2.0-lts1: Add support for legacy Laravel versions - 2026-09-07
+
+### What's Changed
+
+* Add tenant caching, clear-cache command, and optimize queue context by @Mvt1927 in https://github.com/Mvt1927/laravel-multitenancy/pull/1
+
+### New Contributors
+
+* @Mvt1927 made their first contribution in https://github.com/Mvt1927/laravel-multitenancy/pull/1
+
+**Full Changelog**: https://github.com/Mvt1927/laravel-multitenancy/commits/4.2.0-lts1
+
 ## 4.2.0 - 2026-08-07
 
 ### What's Changed
