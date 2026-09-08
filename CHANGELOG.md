@@ -2,6 +2,14 @@
 
 All notable changes to `laravel-multitenancy` will be documented in this file
 
+## v4.2.0-lts2: Multi-domain support and domain caching - 2026-09-08
+
+### What's Changed
+
+* Add domain-based tenant identification with caching support by @Mvt1927 in https://github.com/Mvt1927/laravel-multitenancy/pull/2
+
+**Full Changelog**: https://github.com/Mvt1927/laravel-multitenancy/compare/4.2.0-lts1...4.2.0-lts2
+
 ## v4.2.0-lts1: Add support for legacy Laravel versions - 2026-09-07
 
 ### What's Changed
