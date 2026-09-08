@@ -16,7 +16,7 @@ class TenantFactory extends Factory
         return [
             'name' => $this->faker->name,
             'domain' => $this->faker->unique()->domainName,
-            'database' => $this->faker->userName,
+            'database' => $this->faker->unique()->userName,
         ];
     }
 }

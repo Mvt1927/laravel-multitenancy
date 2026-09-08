@@ -93,3 +93,33 @@ it('tenant and domain models correctly implement IsDomain and relationships', fu
         ->and($domain->tenant->id)->toEqual($tenant->id)
         ->and($domain->getTenant()->id)->toEqual($tenant->id);
 });
+
+it('throws InvalidConfiguration when multi-domain mode is configured but tenant model has no domains relation', function () {
+    $dummyModel = new class extends \Illuminate\Database\Eloquent\Model implements \Spatie\Multitenancy\Contracts\IsTenant {
+        use \Spatie\Multitenancy\Models\Concerns\ImplementsTenant;
+    };
+
+    app()->bind(\Spatie\Multitenancy\Contracts\IsTenant::class, fn () => $dummyModel);
+    config()->set('multitenancy.domain_model', Domain::class);
+
+    $this->expectException(\Spatie\Multitenancy\Exceptions\InvalidConfiguration::class);
+
+    $this->tenantFinder->findForRequest(Request::create('https://some-domain.com'));
+});
+
+it('returns null safely when database query encounters an exception in single domain mode', function () {
+    config()->set('multitenancy.domain_key', 'non_existent_column');
+
+    $request = Request::create('https://my-domain.com');
+
+    expect($this->tenantFinder->findForRequest($request))->toBeNull();
+});
+
+it('returns null safely when database query encounters an exception in multi domain mode', function () {
+    config()->set('multitenancy.domain_model', Domain::class);
+    config()->set('multitenancy.domain_key', 'non_existent_column');
+
+    $request = Request::create('https://my-domain.com');
+
+    expect($this->tenantFinder->findForRequest($request))->toBeNull();
+});

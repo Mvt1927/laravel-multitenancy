@@ -44,15 +44,19 @@ class DomainTenantFinder extends TenantFinder
         $domainModel = config('multitenancy.domain_model');
         $isMultiDomain = ! empty($domainModel) && $domainModel !== config('multitenancy.tenant_model');
 
-        if ($isMultiDomain) {
-            if (! method_exists($tenantModel, 'domains')) {
-                throw InvalidConfiguration::domainRelationMissing(get_class($tenantModel));
-            }
-
-            return $tenantModel::whereHas('domains', fn ($query) => $query->where($domainKey, $host))->first();
+        if ($isMultiDomain && ! method_exists($tenantModel, 'domains')) {
+            throw InvalidConfiguration::domainRelationMissing(get_class($tenantModel));
         }
 
-        return $tenantModel::where($domainKey, $host)->first();
+        try {
+            if ($isMultiDomain) {
+                return $tenantModel::whereHas('domains', fn ($query) => $query->where($domainKey, $host))->first();
+            }
+
+            return $tenantModel::where($domainKey, $host)->first();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     protected function getCacheStore(): CacheRepository

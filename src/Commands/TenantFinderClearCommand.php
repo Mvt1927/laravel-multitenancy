@@ -8,6 +8,8 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\Facades\Cache;
 
+use Spatie\Multitenancy\Exceptions\InvalidConfiguration;
+
 class TenantFinderClearCommand extends Command
 {
     protected $signature = 'tenant:clear {--domain= : The specific domain to clear from cache}';
@@ -50,14 +52,14 @@ class TenantFinderClearCommand extends Command
         $domainKey = config('multitenancy.domain_key', 'domain');
         $isMultiDomain = ! empty($domainModel) && $domainModel !== $tenantClass;
 
+        if ($isMultiDomain && ! method_exists($tenantClass, 'domains')) {
+            throw InvalidConfiguration::domainRelationMissing($tenantClass);
+        }
+
         try {
             $tenantClass::query()->chunk(100, function ($tenants) use ($cache, $prefix, $domainKey, $isMultiDomain, &$count) {
                 foreach ($tenants as $tenant) {
                     if ($isMultiDomain) {
-                        if (! method_exists($tenant, 'domains')) {
-                            continue;
-                        }
-
                         $relationDomains = $tenant->relationLoaded('domains') ? $tenant->getRelation('domains') : $tenant->domains()->get();
 
                         $domains = collect($relationDomains)

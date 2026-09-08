@@ -18,4 +18,6 @@ class Tenant extends Model implements IsTenant, IsDomain
     use ImplementsDomain;
     use HasDomains;
     use HasFactory;
+
+    protected $guarded = [];
 }

@@ -21,6 +21,20 @@ trait ImplementsTenant
         static::deleting(function (IsTenant $tenant) {
             $tenant->forgetDomainCache();
         });
+
+        static::updated(function (IsTenant $tenant) {
+            $domainKey = config('multitenancy.domain_key', 'domain');
+
+            if ($tenant instanceof \Illuminate\Database\Eloquent\Model && $tenant->wasChanged($domainKey)) {
+                $originalDomain = $tenant->getOriginal($domainKey);
+
+                if (is_string($originalDomain) && $originalDomain !== '') {
+                    $tenant->forgetDomainsCache([$originalDomain]);
+                }
+            }
+
+            $tenant->forgetDomainCache();
+        });
     }
 
     public function forgetDomainCache(): void
@@ -56,6 +70,13 @@ trait ImplementsTenant
 
             $domains = (is_string($singleDomain) && $singleDomain !== '') ? [$singleDomain] : [];
         }
+
+        $this->forgetDomainsCache($domains);
+    }
+
+    public function forgetDomainsCache(array $domains): void
+    {
+        $domains = array_values(array_filter(array_unique($domains)));
 
         if (empty($domains)) {
             return;

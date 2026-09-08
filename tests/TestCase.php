@@ -26,15 +26,17 @@ abstract class TestCase extends Orchestra
 
         Schema::connection('landlord')->disableForeignKeyConstraints();
 
-        if (Schema::connection('landlord')->hasTable('domains')) {
-            DB::connection('landlord')->table('domains')->truncate();
+        try {
+            if (Schema::connection('landlord')->hasTable('domains')) {
+                DB::connection('landlord')->table('domains')->truncate();
+            }
+
+            Tenant::truncate();
+
+            DB::table('jobs')->truncate();
+        } finally {
+            Schema::connection('landlord')->enableForeignKeyConstraints();
         }
-
-        Tenant::truncate();
-
-        DB::table('jobs')->truncate();
-
-        Schema::connection('landlord')->enableForeignKeyConstraints();
 
         \Spatie\Multitenancy\Actions\MakeQueueTenantAwareAction::resetState();
 
