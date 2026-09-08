@@ -7,7 +7,6 @@ namespace Spatie\Multitenancy\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\Facades\Cache;
-
 use Spatie\Multitenancy\Exceptions\InvalidConfiguration;
 
 class TenantFinderClearCommand extends Command

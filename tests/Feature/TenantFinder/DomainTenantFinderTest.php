@@ -95,7 +95,7 @@ it('tenant and domain models correctly implement IsDomain and relationships', fu
 });
 
 it('throws InvalidConfiguration when multi-domain mode is configured but tenant model has no domains relation', function () {
-    $dummyModel = new class extends \Illuminate\Database\Eloquent\Model implements \Spatie\Multitenancy\Contracts\IsTenant {
+    $dummyModel = new class () extends \Illuminate\Database\Eloquent\Model implements \Spatie\Multitenancy\Contracts\IsTenant {
         use \Spatie\Multitenancy\Models\Concerns\ImplementsTenant;
     };
 
