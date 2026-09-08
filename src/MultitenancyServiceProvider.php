@@ -12,6 +12,7 @@ use Spatie\LaravelPackageTools\PackageServiceProvider;
 use Spatie\Multitenancy\Commands\TenantFinderClearCommand;
 use Spatie\Multitenancy\Commands\TenantsArtisanCommand;
 use Spatie\Multitenancy\Concerns\UsesMultitenancyConfig;
+use Spatie\Multitenancy\Contracts\IsDomain;
 use Spatie\Multitenancy\Contracts\IsTenant;
 
 class MultitenancyServiceProvider extends PackageServiceProvider
@@ -41,13 +42,12 @@ class MultitenancyServiceProvider extends PackageServiceProvider
             $this->app->bind(IsTenant::class, $tenantModel);
         }
 
-        $this->app->bind(Multitenancy::class, fn ($app) => new Multitenancy($app));
-
-        if ($this->app->runningInConsole()) {
-            $this->commands([
-                TenantFinderClearCommand::class,
-            ]);
+        $domainModel = config('multitenancy.domain_model') ?? config('multitenancy.tenant_model');
+        if ($domainModel) {
+            $this->app->bind(IsDomain::class, $domainModel);
         }
+
+        $this->app->bind(Multitenancy::class, fn ($app) => new Multitenancy($app));
 
         $this->detectsLaravelOctane();
     }

@@ -20,4 +20,9 @@ class InvalidConfiguration extends Exception
     {
         return new static("The class currently specified in the `multitenancy.actions.{$actionName}` key '{$configuredClass}' should be or extend `{$actionClass}`.");
     }
+
+    public static function domainRelationMissing(string $tenantClass): static
+    {
+        return new static("The tenant model `{$tenantClass}` must define a `domains` relationship or use the `HasDomains` trait in multi-domain mode.");
+    }
 }

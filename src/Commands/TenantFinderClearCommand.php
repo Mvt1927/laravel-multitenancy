@@ -46,33 +46,41 @@ class TenantFinderClearCommand extends Command
 
         $count = 0;
 
+        $domainModel = config('multitenancy.domain_model');
+        $domainKey = config('multitenancy.domain_key', 'domain');
+        $isMultiDomain = ! empty($domainModel) && $domainModel !== $tenantClass;
+
         try {
-            $tenantClass::query()->chunk(100, function ($tenants) use ($cache, $prefix, &$count) {
+            $tenantClass::query()->chunk(100, function ($tenants) use ($cache, $prefix, $domainKey, $isMultiDomain, &$count) {
                 foreach ($tenants as $tenant) {
-                    $domains = [];
-
-                    if (isset($tenant->domain) && is_string($tenant->domain) && $tenant->domain !== '') {
-                        $domains[] = $tenant->domain;
-                    }
-
-                    if (method_exists($tenant, 'domains')) {
-                        try {
-                            $relationDomains = $tenant->domains;
-
-                            if (is_iterable($relationDomains)) {
-                                foreach ($relationDomains as $domainItem) {
-                                    if (is_string($domainItem)) {
-                                        $domains[] = $domainItem;
-                                    } elseif (is_object($domainItem) && isset($domainItem->domain)) {
-                                        $domains[] = $domainItem->domain;
-                                    }
-                                }
-                            }
-                        } catch (\Throwable) {
+                    if ($isMultiDomain) {
+                        if (! method_exists($tenant, 'domains')) {
+                            continue;
                         }
+
+                        $relationDomains = $tenant->relationLoaded('domains') ? $tenant->getRelation('domains') : $tenant->domains()->get();
+
+                        $domains = collect($relationDomains)
+                            ->map(function ($domainItem) use ($domainKey) {
+                                if ($domainItem instanceof \Spatie\Multitenancy\Contracts\IsDomain) {
+                                    return $domainItem->getDomainName();
+                                }
+
+                                return is_object($domainItem) ? ($domainItem->{$domainKey} ?? null) : (string) $domainItem;
+                            })
+                            ->filter()
+                            ->unique()
+                            ->values()
+                            ->all();
+                    } else {
+                        $singleDomain = ($tenant instanceof \Spatie\Multitenancy\Contracts\IsDomain)
+                            ? $tenant->getDomainName()
+                            : ($tenant->{$domainKey} ?? null);
+
+                        $domains = (is_string($singleDomain) && $singleDomain !== '') ? [$singleDomain] : [];
                     }
 
-                    foreach (array_unique(array_filter($domains)) as $domain) {
+                    foreach ($domains as $domain) {
                         $cache->forget($prefix . $domain);
                         $count++;
                     }

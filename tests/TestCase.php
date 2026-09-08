@@ -5,6 +5,7 @@ namespace Spatie\Multitenancy\Tests;
 use Illuminate\Console\Application as Artisan;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Spatie\Multitenancy\Models\Tenant;
@@ -23,9 +24,17 @@ abstract class TestCase extends Orchestra
 
         $this->migrateDb();
 
+        Schema::connection('landlord')->disableForeignKeyConstraints();
+
+        if (Schema::connection('landlord')->hasTable('domains')) {
+            DB::connection('landlord')->table('domains')->truncate();
+        }
+
         Tenant::truncate();
 
         DB::table('jobs')->truncate();
+
+        Schema::connection('landlord')->enableForeignKeyConstraints();
 
         \Spatie\Multitenancy\Actions\MakeQueueTenantAwareAction::resetState();
 

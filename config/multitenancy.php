@@ -12,6 +12,7 @@ use Spatie\Multitenancy\Actions\MakeQueueTenantAwareAction;
 use Spatie\Multitenancy\Actions\MakeTenantCurrentAction;
 use Spatie\Multitenancy\Actions\MigrateTenantAction;
 use Spatie\Multitenancy\Models\Tenant;
+use Spatie\Multitenancy\TenantFinder\DomainTenantFinder;
 
 return [
     /*
@@ -52,11 +53,24 @@ return [
     /*
      * This class is the model used for storing configuration on tenants.
      *
-     * It must  extend `Spatie\Multitenancy\Models\Tenant::class` or
+     * It must extend `Spatie\Multitenancy\Models\Tenant::class` or
      * implement `Spatie\Multitenancy\Contracts\IsTenant::class` interface
      */
     'tenant_model' => Tenant::class,
 
+    /*
+     * This class is the model used for storing tenant domains.
+     *
+     * - If set to `null` or same as `tenant_model`, single-domain mode is used (storing domain in `tenants` table).
+     * - If set to a separate model (e.g. `Spatie\Multitenancy\Models\Domain::class` or implementing `IsDomain`),
+     *   multi-domain mode is used (storing domains in `domains` table).
+     */
+    'domain_model' => null,
+
+    /*
+     * The column or attribute name representing the domain hostname.
+     */
+    'domain_key' => 'domain',
     /*
      * If there is a current tenant when dispatching a job, the id of the current tenant
      * will be automatically set on the job. When the job is executed, the set

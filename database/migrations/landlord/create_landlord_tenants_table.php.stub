@@ -14,9 +14,43 @@ return new class extends Migration
         Schema::create('tenants', function (Blueprint $table) {
             $table->id();
             $table->string('name');
+
+            /*
+             * [Single Domain / Hybrid Mode]
+             * Uncomment this if you store a single domain per tenant directly in the `tenants` table.
+             * Comment this line out if you only use the dedicated `domains` table (Pure Multi-Domain Mode).
+             */
             $table->string('domain')->unique();
+
             $table->string('database')->unique();
             $table->timestamps();
         });
+
+        /*
+         * [Multi-Domain / Hybrid Mode]
+         * Uncomment/keep this table if you want a tenant to have multiple domains/aliases.
+         * Comment this block out if you only use single-domain mode with the `domain` column on `tenants`.
+         */
+        Schema::create('domains', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('tenant_id')
+                ->constrained('tenants')
+                ->cascadeOnDelete();
+            $table->string('domain')->unique();
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down()
+    {
+        /*
+         * Comment this out if you did not create the `domains` table above.
+         */
+        Schema::dropIfExists('domains');
+
+        Schema::dropIfExists('tenants');
     }
 };
