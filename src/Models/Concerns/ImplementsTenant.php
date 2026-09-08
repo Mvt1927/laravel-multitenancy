@@ -6,7 +6,9 @@ use Illuminate\Support\Facades\Cache;
 use Laravel\Octane\Facades\Octane;
 use Spatie\Multitenancy\Actions\ForgetCurrentTenantAction;
 use Spatie\Multitenancy\Actions\MakeTenantCurrentAction;
+use Spatie\Multitenancy\Contracts\IsDomain;
 use Spatie\Multitenancy\Contracts\IsTenant;
+use Spatie\Multitenancy\Exceptions\InvalidConfiguration;
 use Spatie\Multitenancy\TenantCollection;
 
 /**
@@ -19,34 +21,62 @@ trait ImplementsTenant
         static::deleting(function (IsTenant $tenant) {
             $tenant->forgetDomainCache();
         });
+
+        static::updated(function (IsTenant $tenant) {
+            $domainKey = config('multitenancy.domain_key', 'domain');
+
+            if ($tenant instanceof \Illuminate\Database\Eloquent\Model && $tenant->wasChanged($domainKey)) {
+                $originalDomain = $tenant->getOriginal($domainKey);
+
+                if (is_string($originalDomain) && $originalDomain !== '') {
+                    $tenant->forgetDomainsCache([$originalDomain]);
+                }
+            }
+
+            $tenant->forgetDomainCache();
+        });
     }
 
     public function forgetDomainCache(): void
     {
-        $domains = [];
+        $domainModel = config('multitenancy.domain_model');
+        $tenantModel = config('multitenancy.tenant_model', static::class);
+        $domainKey = config('multitenancy.domain_key', 'domain');
+        $isMultiDomain = ! empty($domainModel) && $domainModel !== $tenantModel;
 
-        if (isset($this->domain) && is_string($this->domain) && $this->domain !== '') {
-            $domains[] = $this->domain;
-        }
-
-        if (method_exists($this, 'domains')) {
-            try {
-                $relationDomains = $this->domains;
-
-                if (is_iterable($relationDomains)) {
-                    foreach ($relationDomains as $domainItem) {
-                        if (is_string($domainItem)) {
-                            $domains[] = $domainItem;
-                        } elseif (is_object($domainItem) && isset($domainItem->domain)) {
-                            $domains[] = $domainItem->domain;
-                        }
-                    }
-                }
-            } catch (\Throwable) {
+        if ($isMultiDomain) {
+            if (! method_exists($this, 'domains')) {
+                throw InvalidConfiguration::domainRelationMissing(static::class);
             }
+
+            $relationDomains = $this->relationLoaded('domains') ? $this->getRelation('domains') : $this->domains()->get();
+
+            $domains = collect($relationDomains)
+                ->map(function ($domainItem) use ($domainKey) {
+                    if ($domainItem instanceof IsDomain) {
+                        return $domainItem->getDomainName();
+                    }
+
+                    return is_object($domainItem) ? ($domainItem->{$domainKey} ?? null) : (string) $domainItem;
+                })
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+        } else {
+            $singleDomain = ($this instanceof IsDomain)
+                ? $this->getDomainName()
+                : ($this->{$domainKey} ?? null);
+
+            $domains = (is_string($singleDomain) && $singleDomain !== '') ? [$singleDomain] : [];
         }
 
-        $domains = array_unique(array_filter($domains));
+        $this->forgetDomainsCache($domains);
+    }
+
+    public function forgetDomainsCache(array $domains): void
+    {
+        $domains = array_values(array_filter(array_unique($domains)));
 
         if (empty($domains)) {
             return;

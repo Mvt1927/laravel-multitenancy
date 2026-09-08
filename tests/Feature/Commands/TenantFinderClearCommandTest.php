@@ -41,3 +41,19 @@ it('clears the enabled flag from cache', function () {
 
     expect($cache->has($enabledFlag))->toBeFalse();
 });
+
+class DummyTenantWithoutDomainsRel extends \Illuminate\Database\Eloquent\Model implements \Spatie\Multitenancy\Contracts\IsTenant
+{
+    use \Spatie\Multitenancy\Models\Concerns\ImplementsTenant;
+
+    protected $guarded = [];
+}
+
+it('throws InvalidConfiguration when multi domain mode is enabled but tenant model lacks domains relation', function () {
+    config()->set('multitenancy.tenant_model', DummyTenantWithoutDomainsRel::class);
+    config()->set('multitenancy.domain_model', \Spatie\Multitenancy\Models\Domain::class);
+
+    $this->expectException(\Spatie\Multitenancy\Exceptions\InvalidConfiguration::class);
+
+    $this->artisan('tenant:clear');
+});

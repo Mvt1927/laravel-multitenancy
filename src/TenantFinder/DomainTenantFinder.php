@@ -6,6 +6,7 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Spatie\Multitenancy\Contracts\IsTenant;
+use Spatie\Multitenancy\Exceptions\InvalidConfiguration;
 
 class DomainTenantFinder extends TenantFinder
 {
@@ -39,20 +40,20 @@ class DomainTenantFinder extends TenantFinder
     protected function resolveTenant(string $host): ?IsTenant
     {
         $tenantModel = app(IsTenant::class);
+        $domainKey = config('multitenancy.domain_key', 'domain');
+        $domainModel = config('multitenancy.domain_model');
+        $isMultiDomain = ! empty($domainModel) && $domainModel !== config('multitenancy.tenant_model');
 
-        if (method_exists($tenantModel, 'domains')) {
-            try {
-                $tenant = $tenantModel::whereHas('domains', fn ($query) => $query->where('domain', $host))->first();
-
-                if ($tenant) {
-                    return $tenant;
-                }
-            } catch (\Throwable) {
-            }
+        if ($isMultiDomain && ! method_exists($tenantModel, 'domains')) {
+            throw InvalidConfiguration::domainRelationMissing(get_class($tenantModel));
         }
 
         try {
-            return $tenantModel::where('domain', $host)->first();
+            if ($isMultiDomain) {
+                return $tenantModel::whereHas('domains', fn ($query) => $query->where($domainKey, $host))->first();
+            }
+
+            return $tenantModel::where($domainKey, $host)->first();
         } catch (\Throwable) {
             return null;
         }
